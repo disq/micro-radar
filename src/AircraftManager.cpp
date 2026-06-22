@@ -144,7 +144,7 @@ void AircraftManager::Draw(LGFX_Sprite& backbuffer)
             DrawAircraftInfo(backbuffer, x, y, tracked);
 
         if (displayTriangles)
-            DrawAircraftTriangle(backbuffer, x, y, tracked);
+            DrawAircraftMarker(backbuffer, x, y, tracked);
         else
             backbuffer.fillCircle(x, y, 3, lgfx::color888(0, 255, 0));
     }
@@ -186,22 +186,23 @@ void AircraftManager::DrawAircraftInfo(LGFX_Sprite& backbuffer, int x, int y, co
     backbuffer.drawString(String(tracked.state.baroAltitude) + "m", x + 5, y + 5 + lineHeight * 2);
 }
 
-void AircraftManager::DrawAircraftTriangle(LGFX_Sprite& backbuffer, int x, int y, const TrackedAircraft& tracked) const
+void AircraftManager::DrawAircraftMarker(LGFX_Sprite& backbuffer, int x, int y, const TrackedAircraft& tracked) const
 {
     const float dx = std::sin(radians(tracked.state.trueTrack));
     const float dy = -std::cos(radians(tracked.state.trueTrack));
-    const float px = -dy;
-    const float py = dx;
+    const float px = -dy, py = dx; // perpendicular
 
-    constexpr float TRIANGLE_LENGTH = 6.0f;
-    constexpr float TRIANGLE_WIDTH = 3.0f;
+    // heading + speed "vector" line; length grows a little with velocity (clamped
+    // so fast jets don't streak across the screen)
+    float vlen = 6.0f + tracked.state.velocity * 0.12f;
+    if (vlen > 18.0f) vlen = 18.0f;
+    backbuffer.drawLine(x, y, x + dx * vlen, y + dy * vlen, lgfx::color888(0, 120, 0));
 
-    const float tipX = x + dx * TRIANGLE_LENGTH;
-    const float tipY = y + dy * TRIANGLE_LENGTH;
-    const float leftX = x - dx * TRIANGLE_LENGTH * 0.5f + px * TRIANGLE_WIDTH * 0.5f;
-    const float leftY = y - dy * TRIANGLE_LENGTH * 0.5f + py * TRIANGLE_WIDTH * 0.5f;
-    const float rightX = x - dx * TRIANGLE_LENGTH * 0.5f - px * TRIANGLE_WIDTH * 0.5f;
-    const float rightY = y - dy * TRIANGLE_LENGTH * 0.5f - py * TRIANGLE_WIDTH * 0.5f;
-
-    backbuffer.fillTriangle(tipX, tipY, leftX, leftY, rightX, rightY, lgfx::color888(0, 255, 0));
+    // directional arrow pointing along the heading
+    constexpr float LEN = 6.0f, WIDTH = 3.0f;
+    backbuffer.fillTriangle(
+        x + dx * LEN, y + dy * LEN,
+        x - dx * LEN * 0.5f + px * WIDTH * 0.5f, y - dy * LEN * 0.5f + py * WIDTH * 0.5f,
+        x - dx * LEN * 0.5f - px * WIDTH * 0.5f, y - dy * LEN * 0.5f - py * WIDTH * 0.5f,
+        lgfx::color888(0, 255, 0));
 }
