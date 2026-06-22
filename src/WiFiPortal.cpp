@@ -73,14 +73,13 @@ void WiFiPortal::MaintainConnection()
     if (WiFi.status() == WL_CONNECTED)
         return;
 
-    static uint32_t lastAttempt = 0;
-    if (lastAttempt != 0 && millis() - lastAttempt < 15000)
-        return; // back off between reconnect attempts
-    lastAttempt = millis();
-
-    Serial.println("[WiFi] Link down - attempting reconnect...");
-    WiFi.disconnect();
-    WiFi.begin(config.GetString("wifi-ssid").c_str(), config.GetString("wifi-pass").c_str());
+    // Recover a dropped link through the SAME robust routine as the initial
+    // connect (clean-state scan + strongest-BSSID lock + retry-forever, with
+    // BOOTSEL still opening the setup portal) rather than a plain begin() that
+    // the band-steering problem would defeat. Blocks until reconnected - which
+    // is fine, there's no live data to show while the link is down anyway.
+    Serial.println("[WiFi] Link dropped - reconnecting...");
+    AutoConnect();
 }
 
 bool WiFiPortal::TryConnect(const String& ssid, const String& pass, uint32_t timeoutMs)

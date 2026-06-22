@@ -7,6 +7,7 @@ class ConfigurationWebServer {
 private:
     WebServer server;
     ConfigStore& store;
+    bool settingsChanged = false;
 
     void HandleRoot();
     void HandleSave();
@@ -17,5 +18,6 @@ public:
 
     void Initialise();
     void Handle();
+    bool ConsumeSettingsChanged(); // true once after non-credential settings are saved
     [[nodiscard]] const String GetStoredString(const char* key);
 };

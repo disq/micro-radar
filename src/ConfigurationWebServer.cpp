@@ -178,21 +178,46 @@ void ConfigurationWebServer::HandleSave() {
     TrySaveParam("latitude");
     TrySaveParam("longitude");
     TrySaveParam("radius");
-    TrySaveParam("opensky-id");
+
+    // OpenSky credentials affect auth + the daily request budget, so a change
+    // there needs a reboot to re-auth cleanly. Location/radius/display options
+    // are applied live (see ConsumeSettingsChanged + AircraftManager::ReloadSettings).
+    bool credentialsChanged = false;
+
+    if (server.hasArg("opensky-id")) {
+        const String id = server.arg("opensky-id");
+        if (id != store.GetString("opensky-id", ""))
+            credentialsChanged = true;
+        store.PutString("opensky-id", id);
+    }
 
     if (server.hasArg("opensky-secret")) {
         const String secret = server.arg("opensky-secret");
-        if (secret.indexOf('*') == -1) // don't overwrite with masked value
+        if (secret.indexOf('*') == -1) { // a real value, not the masked placeholder
             store.PutString("opensky-secret", secret);
+            credentialsChanged = true;
+        }
     }
 
     store.PutString("scanline", server.hasArg("scanline") ? "true" : "false");
     store.PutString("triangle", server.hasArg("triangle") ? "true" : "false");
     store.PutString("infotext", server.hasArg("infotext") ? "true" : "false");
 
-    server.send(200, "text/html", "Saved - restarting device...");
-    delay(500);
-    rp2040.reboot();
+    if (credentialsChanged) {
+        server.send(200, "text/html", "Saved - restarting to apply credentials...");
+        delay(500);
+        rp2040.reboot();
+    }
+
+    settingsChanged = true;
+    server.send(200, "text/html", "Saved.");
+}
+
+bool ConfigurationWebServer::ConsumeSettingsChanged() {
+    if (!settingsChanged)
+        return false;
+    settingsChanged = false;
+    return true;
 }
 
 const String ConfigurationWebServer::GetStoredString(const char* key)

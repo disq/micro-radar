@@ -20,6 +20,7 @@ private:
 
     unsigned long fetchInterval = 0;
     unsigned long lastFetch = 999999;
+    bool forceFetch = false;
 
     ConfigurationWebServer& configServer;
     OpenSkyAuthTokenHandler& authHandler;
@@ -39,6 +40,7 @@ public:
     ~AircraftManager() = default;
 
     void Initialise();
+    void ReloadSettings(); // re-read location/radius/display options without a reboot
     void Update();
     void Draw(LGFX_Sprite& backbuffer);
 };

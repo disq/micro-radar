@@ -5,16 +5,7 @@
 
 void AircraftManager::Initialise()
 {
-    // get centre point + radius
-    lat = configServer.GetStoredString("latitude").toDouble();
-    lon = configServer.GetStoredString("longitude").toDouble();
-    rad = configServer.GetStoredString("radius").toDouble();
-
-    // configuration
-    const String renderText = configServer.GetStoredString("infotext");
-    const String renderTris = configServer.GetStoredString("triangle");
-    if (!renderText.isEmpty()) displayInfoText = renderText == "true" ? true : false;
-    if (!renderTris.isEmpty()) displayTriangles = renderTris == "true" ? true : false;
+    ReloadSettings();
 
     // calculate how often we can call OpenSky API before being rate limited
     constexpr int MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -30,12 +21,29 @@ void AircraftManager::Initialise()
     fetchInterval = MS_PER_DAY / dailyRequestBudget;
 }
 
+void AircraftManager::ReloadSettings()
+{
+    lat = configServer.GetStoredString("latitude").toDouble();
+    lon = configServer.GetStoredString("longitude").toDouble();
+    rad = configServer.GetStoredString("radius").toDouble();
+
+    const String renderText = configServer.GetStoredString("infotext");
+    const String renderTris = configServer.GetStoredString("triangle");
+    if (!renderText.isEmpty()) displayInfoText = renderText == "true";
+    if (!renderTris.isEmpty()) displayTriangles = renderTris == "true";
+
+    // the tracked planes belong to the old area; drop them and refetch promptly
+    trackedAircraft.clear();
+    forceFetch = true;
+}
+
 void AircraftManager::Update()
 {
     unsigned long now = millis();
 
     // fetch cycle
-    if (now - lastFetch >= fetchInterval) {
+    if (forceFetch || now - lastFetch >= fetchInterval) {
+        forceFetch = false;
         lastFetch = now;
 
         // auth

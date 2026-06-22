@@ -56,6 +56,8 @@ void loop()
 {
   wifiPortal.MaintainConnection();
   configServer.Handle();
+  if (configServer.ConsumeSettingsChanged())
+    aircraftManager.ReloadSettings();
   aircraftManager.Update();
 
   // draw cycle
