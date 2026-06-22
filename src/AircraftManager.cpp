@@ -47,6 +47,31 @@ void AircraftManager::ReloadSettings()
     mutex_exit(&g_dataMutex);
 }
 
+void AircraftManager::ToggleScanline()
+{
+    mutex_enter_blocking(&g_dataMutex);
+    displayScanline = !displayScanline;
+    mutex_exit(&g_dataMutex);
+}
+
+void AircraftManager::ToggleInfoText()
+{
+    mutex_enter_blocking(&g_dataMutex);
+    displayInfoText = !displayInfoText;
+    mutex_exit(&g_dataMutex);
+}
+
+void AircraftManager::AdjustRadius(double delta)
+{
+    mutex_enter_blocking(&g_dataMutex);
+    rad += delta;
+    if (rad < 0.25) rad = 0.25;
+    if (rad > 2.5) rad = 2.5;
+    trackedAircraft.clear(); // old planes belong to the old area
+    forceFetch = true;       // refetch the new bounding box
+    mutex_exit(&g_dataMutex);
+}
+
 void AircraftManager::Update()
 {
     unsigned long now = millis();
@@ -72,7 +97,8 @@ void AircraftManager::Update()
               {"lamin", String(lat - rad)},
               {"lamax", String(lat + rad)},
               {"lomin", String(lon - rad)},
-              {"lomax", String(lon + rad)}
+              {"lomax", String(lon + rad)},
+              {"extended", "1"} // include the ADS-B emitter category (state vector [17])
             },
             headers
         );
@@ -133,6 +159,12 @@ void AircraftManager::Draw(LGFX_Sprite& backbuffer)
     DrawRadarCircles(backbuffer);
 
     mutex_enter_blocking(&g_dataMutex);
+
+    // range readout in the top-left corner (outside the radar circle)
+    backbuffer.setTextSize(1);
+    backbuffer.setTextColor(lgfx::color888(0, 160, 0));
+    backbuffer.drawString("RNG " + String(rad, 2), 4, 4);
+
     for (auto& [icao, tracked] : trackedAircraft) {
         if (tracked.state.onGround) continue;
 
@@ -181,28 +213,95 @@ void AircraftManager::DrawAircraftInfo(LGFX_Sprite& backbuffer, int x, int y, co
 
     backbuffer.setTextSize(1);
     backbuffer.setTextColor(lgfx::color888(0, 128, 0));
-    backbuffer.drawString(tracked.state.callsign, x + 5, y + 5);
+
+    String label = tracked.state.callsign;
+    label.trim();
+    backbuffer.drawString(label, x + 5, y + 5);
     backbuffer.drawString(String(tracked.state.velocity) + "m/s", x + 5, y + 5 + lineHeight);
     backbuffer.drawString(String(tracked.state.baroAltitude) + "m", x + 5, y + 5 + lineHeight * 2);
+}
+
+// OpenSky ADS-B emitter category (state vector [17]) grouped into marker shapes.
+enum class MarkerType { Default, Commercial, Helicopter, Light, Drone };
+
+static MarkerType ClassifyCategory(int category)
+{
+    switch (category) {
+        case 4: case 5: case 6: case 7: return MarkerType::Commercial; // large / heavy / high-perf
+        case 8:                          return MarkerType::Helicopter; // rotorcraft
+        case 2: case 3: case 9: case 12: return MarkerType::Light;      // light / small / glider / ultralight
+        case 14:                         return MarkerType::Drone;      // UAV
+        default:                         return MarkerType::Default;    // 0/1 unknown, everything else
+    }
+}
+
+// An ICAO airline callsign is 3 letters + a flight number (e.g. BAW33K), versus a
+// tail registration which is letters only (e.g. GBKBW). Used as a type hint.
+static bool IsAirlineCallsign(const String& cs)
+{
+    if (cs.length() < 4) return false;
+    if (!isAlpha(cs[0]) || !isAlpha(cs[1]) || !isAlpha(cs[2])) return false;
+    for (unsigned int i = 3; i < cs.length(); i++)
+        if (isDigit(cs[i])) return true;
+    return false;
+}
+
+// OpenSky's emitter category is sparse, so fall back to callsign + kinematics when
+// it's absent (0/1). Real category data always wins when present.
+static MarkerType ClassifyAircraft(const Aircraft& s)
+{
+    if (s.category >= 2) return ClassifyCategory(s.category);
+
+    String cs = s.callsign;
+    cs.trim();
+    if (IsAirlineCallsign(cs) || (s.baroAltitude > 6000.0f && s.velocity > 150.0f))
+        return MarkerType::Commercial;
+    if (s.baroAltitude > 0.0f && s.baroAltitude < 3000.0f && s.velocity < 100.0f)
+        return MarkerType::Light;
+    return MarkerType::Default;
+}
+
+// Draws a forward-pointing arrow oriented along the heading unit vector (dx, dy).
+static void DrawArrow(LGFX_Sprite& buf, int x, int y, float dx, float dy, float len, float width, uint32_t colour)
+{
+    const float px = -dy, py = dx; // perpendicular
+    buf.fillTriangle(
+        x + dx * len, y + dy * len,
+        x - dx * len * 0.5f + px * width * 0.5f, y - dy * len * 0.5f + py * width * 0.5f,
+        x - dx * len * 0.5f - px * width * 0.5f, y - dy * len * 0.5f - py * width * 0.5f,
+        colour);
 }
 
 void AircraftManager::DrawAircraftMarker(LGFX_Sprite& backbuffer, int x, int y, const TrackedAircraft& tracked) const
 {
     const float dx = std::sin(radians(tracked.state.trueTrack));
     const float dy = -std::cos(radians(tracked.state.trueTrack));
-    const float px = -dy, py = dx; // perpendicular
+    const uint32_t green = lgfx::color888(0, 255, 0);
 
-    // heading + speed "vector" line; length grows a little with velocity (clamped
-    // so fast jets don't streak across the screen)
+    // heading + speed "vector" line so even non-pointy bodies show where it's going;
+    // length grows a little with velocity (clamped so fast jets don't streak across)
     float vlen = 6.0f + tracked.state.velocity * 0.12f;
     if (vlen > 18.0f) vlen = 18.0f;
     backbuffer.drawLine(x, y, x + dx * vlen, y + dy * vlen, lgfx::color888(0, 120, 0));
 
-    // directional arrow pointing along the heading
-    constexpr float LEN = 6.0f, WIDTH = 3.0f;
-    backbuffer.fillTriangle(
-        x + dx * LEN, y + dy * LEN,
-        x - dx * LEN * 0.5f + px * WIDTH * 0.5f, y - dy * LEN * 0.5f + py * WIDTH * 0.5f,
-        x - dx * LEN * 0.5f - px * WIDTH * 0.5f, y - dy * LEN * 0.5f - py * WIDTH * 0.5f,
-        lgfx::color888(0, 255, 0));
+    switch (ClassifyAircraft(tracked.state)) {
+        case MarkerType::Commercial:
+            DrawArrow(backbuffer, x, y, dx, dy, 9.0f, 5.0f, green);
+            break;
+        case MarkerType::Helicopter:
+            backbuffer.fillCircle(x, y, 3, green);
+            backbuffer.drawLine(x - 5, y, x + 5, y, green); // rotor cross
+            backbuffer.drawLine(x, y - 5, x, y + 5, green);
+            break;
+        case MarkerType::Light:
+            DrawArrow(backbuffer, x, y, dx, dy, 5.0f, 3.0f, green);
+            break;
+        case MarkerType::Drone:
+            backbuffer.fillRect(x - 3, y - 3, 6, 6, green);
+            break;
+        case MarkerType::Default:
+        default:
+            DrawArrow(backbuffer, x, y, dx, dy, 6.0f, 3.0f, green);
+            break;
+    }
 }

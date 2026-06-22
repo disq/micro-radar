@@ -31,6 +31,9 @@ mutex_t g_displayMutex;
 volatile bool g_radarActive = false;
 bool core1_separate_stack = true; // give each core its own 8K stack (core0 needs it for TLS)
 
+// Pico Display 2.0 front buttons (active-low, internal pull-ups)
+constexpr int BTN_A = 12, BTN_B = 13, BTN_X = 14, BTN_Y = 15;
+
 void setup()
 {
   Serial.begin(115200);
@@ -42,6 +45,11 @@ void setup()
 
   mutex_init(&g_dataMutex);
   mutex_init(&g_displayMutex);
+
+  pinMode(BTN_A, INPUT_PULLUP);
+  pinMode(BTN_B, INPUT_PULLUP);
+  pinMode(BTN_X, INPUT_PULLUP);
+  pinMode(BTN_Y, INPUT_PULLUP);
 
   // initialise LGFX + screen
   tft.init();
@@ -74,6 +82,25 @@ void loop()
   aircraftManager.Update();
 }
 
+// Poll the four front buttons (edge-detected, one action per press).
+// A = toggle sweep, B = toggle aircraft labels, X = range +0.25, Y = range -0.25.
+static void HandleButtons()
+{
+  const int pins[4] = { BTN_A, BTN_B, BTN_X, BTN_Y };
+  static bool was[4] = { false, false, false, false };
+
+  bool now[4];
+  for (int i = 0; i < 4; i++)
+    now[i] = digitalRead(pins[i]) == LOW; // active-low
+
+  if (now[0] && !was[0]) aircraftManager.ToggleScanline();
+  if (now[1] && !was[1]) aircraftManager.ToggleInfoText();
+  if (now[2] && !was[2]) aircraftManager.AdjustRadius(+0.25);
+  if (now[3] && !was[3]) aircraftManager.AdjustRadius(-0.25);
+
+  for (int i = 0; i < 4; i++) was[i] = now[i];
+}
+
 // core1: draw the radar. Runs independently of the core0 fetch, so the sweep and
 // aircraft keep animating smoothly even while an OpenSky TLS request is blocking.
 void loop1()
@@ -82,6 +109,8 @@ void loop1()
     delay(5); // core0 is showing a status screen (booting / reconnecting)
     return;
   }
+
+  HandleButtons();
 
   backbuffer.fillScreen(lgfx::color888(0, 0, 0));
   aircraftManager.Draw(backbuffer);

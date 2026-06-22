@@ -44,4 +44,9 @@ public:
     void ReloadSettings(); // re-read location/radius/display options without a reboot
     void Update();
     void Draw(LGFX_Sprite& backbuffer);
+
+    // runtime controls (Pico Display buttons) - session-only, don't persist
+    void ToggleScanline();
+    void ToggleInfoText();
+    void AdjustRadius(double delta);
 };
