@@ -1,4 +1,5 @@
 #include "HttpRequestManager.h"
+#include "StatusLed.h"
 
 String HttpRequestManager::BuildQueryString(const std::vector<std::pair<String, String>>& params) const
 {
@@ -22,6 +23,7 @@ String HttpRequestManager::BuildQueryString(const std::vector<std::pair<String, 
 }
 
 HttpResult HttpRequestManager::Get(const String& url, const std::vector<std::pair<String, String>>& params, const std::vector<std::pair<String, String>>& headers) {
+    StatusLed::Blue(); // request in progress
     HttpResult result{ false, 0, "", "" };
 
     const String queryParams = BuildQueryString(params);
@@ -48,6 +50,7 @@ HttpResult HttpRequestManager::Get(const String& url, const std::vector<std::pai
     else {
         result.success = false;
         result.errorMessage = http.errorToString(responseCode);
+        StatusLed::Red(); // request failed
         Serial.print("[GET] HTTP Error (");
         Serial.print(responseCode);
         Serial.print("): ");
@@ -60,6 +63,7 @@ HttpResult HttpRequestManager::Get(const String& url, const std::vector<std::pai
 
 HttpResult HttpRequestManager::Post(const String& url, const String& body, const std::vector<std::pair<String, String>>& headers)
 {
+    StatusLed::Blue(); // request in progress
     HttpResult result{ false, 0, "", "" };
 
     if (url.startsWith("https"))
@@ -83,6 +87,7 @@ HttpResult HttpRequestManager::Post(const String& url, const String& body, const
     else {
         result.success = false;
         result.errorMessage = http.errorToString(responseCode);
+        StatusLed::Red(); // request failed
         Serial.print("[POST] HTTP Error (");
         Serial.print(responseCode);
         Serial.print("): ");

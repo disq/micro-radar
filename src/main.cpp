@@ -4,6 +4,7 @@
 #include "LGFX.h"
 #include "RadarLayout.h"
 #include "Sync.h"
+#include "StatusLed.h"
 #include "ConfigStore.h"
 #include "WiFiPortal.h"
 #include "ConfigurationWebServer.h"
@@ -51,6 +52,8 @@ void setup()
   pinMode(BTN_X, INPUT_PULLUP);
   pinMode(BTN_Y, INPUT_PULLUP);
 
+  StatusLed::Begin(); // RGB LED off until a blink event
+
   // initialise LGFX + screen
   tft.init();
   tft.setRotation(1); // ST7789 is natively 240x320 portrait; rotate to 320x240 landscape
@@ -93,10 +96,13 @@ static void HandleButtons()
   for (int i = 0; i < 4; i++)
     now[i] = digitalRead(pins[i]) == LOW; // active-low
 
-  if (now[0] && !was[0]) aircraftManager.ToggleScanline();
-  if (now[1] && !was[1]) aircraftManager.ToggleInfoText();
-  if (now[2] && !was[2]) aircraftManager.AdjustRadius(+0.25);
-  if (now[3] && !was[3]) aircraftManager.AdjustRadius(-0.25);
+  bool pressed = false;
+  if (now[0] && !was[0]) { aircraftManager.ToggleScanline();   pressed = true; }
+  if (now[1] && !was[1]) { aircraftManager.ToggleInfoText();   pressed = true; }
+  if (now[2] && !was[2]) { aircraftManager.AdjustRadius(+0.25); pressed = true; }
+  if (now[3] && !was[3]) { aircraftManager.AdjustRadius(-0.25); pressed = true; }
+
+  if (pressed) StatusLed::Green();
 
   for (int i = 0; i < 4; i++) was[i] = now[i];
 }
