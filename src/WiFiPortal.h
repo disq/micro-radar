@@ -14,7 +14,7 @@ private:
     ConfigStore& config;
     LGFX& tft;
 
-    bool TryConnect(const String& ssid, const String& pass, uint32_t timeoutMs);
+    bool TryConnect(const String& ssid, const String& pass);
     void RunConfigPortal();
     void ShowStatus(const char* line1, const String& line2 = "", const String& line3 = "");
 

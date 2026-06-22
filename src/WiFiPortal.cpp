@@ -59,7 +59,7 @@ void WiFiPortal::AutoConnect()
     int round = 0;
     while (true) {
         ShowStatus("Connecting to WiFi...", ssid, "hold BOOTSEL to set up");
-        if (TryConnect(ssid, config.GetString("wifi-pass"), 30000)) {
+        if (TryConnect(ssid, config.GetString("wifi-pass"))) {
             Serial.printf("[WiFi] Connected. IP=%s RSSI=%d dBm\n",
                 WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
             return;
@@ -82,7 +82,7 @@ void WiFiPortal::MaintainConnection()
     AutoConnect();
 }
 
-bool WiFiPortal::TryConnect(const String& ssid, const String& pass, uint32_t timeoutMs)
+bool WiFiPortal::TryConnect(const String& ssid, const String& pass)
 {
     // status legend: 0=IDLE 1=NO_SSID 3=CONNECTED 4=CONNECT_FAILED 6=DISCONNECTED
     Serial.printf("[WiFi] Connecting to '%s' with '%s' (Pico W is 2.4GHz only)...\n", ssid.c_str(), pass.c_str());
@@ -90,20 +90,17 @@ bool WiFiPortal::TryConnect(const String& ssid, const String& pass, uint32_t tim
     WiFi.mode(WIFI_STA);
     delay(200);
 
-    const uint32_t deadline = millis() + timeoutMs;
-
-    // Collect every BSSID broadcasting our SSID (strongest first) and try each in
-    // turn. Locking onto a specific 2.4GHz radio stops the chip being steered to a
-    // 5GHz AP it can't use; trying them in order means if the closest one rejects
-    // us (WPA3 / band-steering) we fall through to a weaker sibling that accepts.
-    // The scan runs from a clean STA state - NOT after disconnect, which returns an
-    // empty list - and only ever sees 2.4GHz here.
+    // Collect every BSSID broadcasting our SSID (strongest first). Locking onto a
+    // specific 2.4GHz radio stops the chip being steered to a 5GHz AP it can't use;
+    // trying them in order means if the closest one rejects us (WPA3 / band-steering)
+    // we fall through to a weaker sibling that accepts. The scan runs from a clean
+    // STA state - NOT after disconnect, which returns an empty list.
     struct Ap { uint8_t bssid[6]; int32_t rssi; };
     constexpr int MAX_APS = 8;
     Ap aps[MAX_APS];
     int apCount = 0;
 
-    while (millis() < deadline && apCount == 0) {
+    for (int s = 0; s < 4 && apCount == 0; s++) {
         const int n = WiFi.scanNetworks();
         Serial.printf("[WiFi] scan returned %d network(s)\n", n);
         for (int i = 0; i < n && apCount < MAX_APS; i++) {
@@ -136,43 +133,44 @@ bool WiFiPortal::TryConnect(const String& ssid, const String& pass, uint32_t tim
     WiFi.setHostname("microradar");
     WiFi.noLowPowerMode(); // disable CYW43 power-save - big reliability win on Pico W
 
-    int attempt = 0;
-    while (millis() < deadline) {
-        const int passes = apCount > 0 ? apCount : 1; // one plain begin() if scan found nothing
-        for (int a = 0; a < passes && millis() < deadline; a++) {
-            if (apCount > 0) {
-                const uint8_t* b = aps[a].bssid;
-                Serial.printf("[WiFi] attempt %d -> BSSID %02x:%02x:%02x:%02x:%02x:%02x (%d dBm)\n",
-                    ++attempt, b[0], b[1], b[2], b[3], b[4], b[5], (int)aps[a].rssi);
-                WiFi.begin(ssid.c_str(), pass.c_str(), b);
-            } else {
-                Serial.printf("[WiFi] attempt %d (no BSSID lock)\n", ++attempt);
-                WiFi.begin(ssid.c_str(), pass.c_str());
-            }
-
-            uint32_t attemptDeadline = millis() + 6000;
-            if (attemptDeadline > deadline) attemptDeadline = deadline;
-            uint32_t lastPrint = 0;
-            while (WiFi.status() != WL_CONNECTED && millis() < attemptDeadline) {
-                if (BOOTSEL)
-                    RunConfigPortal(); // user asked for the setup portal; never returns
-                if (WiFi.status() == WL_CONNECT_FAILED) {
-                    Serial.println("[WiFi] ...rejected (status=4), trying next BSSID");
-                    break; // terminal - don't wait out the timeout, move on
-                }
-                if (millis() - lastPrint >= 1000) {
-                    Serial.printf("[WiFi] ...status=%d\n", WiFi.status());
-                    lastPrint = millis();
-                }
-                delay(100);
-            }
-
-            if (WiFi.status() == WL_CONNECTED)
-                return true;
-
-            WiFi.disconnect();
-            delay(150);
+    // Give each AP a generous window to finish associating. Cutting a begin() short
+    // and re-begin()-ing just restarts the handshake from zero, so we only abandon
+    // an attempt on a definitive WL_CONNECT_FAILED, never on a still-progressing
+    // status 6. One pass over every AP; AutoConnect loops if the whole pass fails.
+    constexpr uint32_t PER_AP_TIMEOUT = 15000;
+    const int passes = apCount > 0 ? apCount : 1; // one plain begin() if scan found nothing
+    for (int a = 0; a < passes; a++) {
+        if (apCount > 0) {
+            const uint8_t* b = aps[a].bssid;
+            Serial.printf("[WiFi] -> BSSID %02x:%02x:%02x:%02x:%02x:%02x (%d dBm), up to %lus\n",
+                b[0], b[1], b[2], b[3], b[4], b[5], (int)aps[a].rssi, PER_AP_TIMEOUT / 1000);
+            WiFi.begin(ssid.c_str(), pass.c_str(), b);
+        } else {
+            Serial.println("[WiFi] -> no BSSID lock (SSID not in scan)");
+            WiFi.begin(ssid.c_str(), pass.c_str());
         }
+
+        const uint32_t until = millis() + PER_AP_TIMEOUT;
+        uint32_t lastPrint = 0;
+        while (WiFi.status() != WL_CONNECTED && millis() < until) {
+            if (BOOTSEL)
+                RunConfigPortal(); // user asked for the setup portal; never returns
+            if (WiFi.status() == WL_CONNECT_FAILED) {
+                Serial.println("[WiFi] ...rejected (status=4), next AP");
+                break; // terminal - don't wait out the window, move on
+            }
+            if (millis() - lastPrint >= 1000) {
+                Serial.printf("[WiFi] ...status=%d\n", WiFi.status());
+                lastPrint = millis();
+            }
+            delay(100);
+        }
+
+        if (WiFi.status() == WL_CONNECTED)
+            return true;
+
+        WiFi.disconnect();
+        delay(200);
     }
 
     return false;
