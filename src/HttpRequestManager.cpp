@@ -27,6 +27,9 @@ HttpResult HttpRequestManager::Get(const String& url, const std::vector<std::pai
     const String queryParams = BuildQueryString(params);
     const String fullUrl = url + queryParams;
 
+    if (fullUrl.startsWith("https"))
+        http.setInsecure(); // skip cert validation; RP2040 has no cert store
+
     http.begin(fullUrl);
 
     // add headers to request
@@ -58,6 +61,9 @@ HttpResult HttpRequestManager::Get(const String& url, const std::vector<std::pai
 HttpResult HttpRequestManager::Post(const String& url, const String& body, const std::vector<std::pair<String, String>>& headers)
 {
     HttpResult result{ false, 0, "", "" };
+
+    if (url.startsWith("https"))
+        http.setInsecure(); // skip cert validation; RP2040 has no cert store
 
     http.begin(url);
 

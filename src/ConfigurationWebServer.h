@@ -1,17 +1,21 @@
 #pragma once
 
-#include <ESPAsyncWebServer.h>
-#include <Preferences.h>
+#include <WebServer.h>
+#include "ConfigStore.h"
 
 class ConfigurationWebServer {
 private:
-    AsyncWebServer server;
-    Preferences prefs;
+    WebServer server;
+    ConfigStore& store;
+
+    void HandleRoot();
+    void HandleSave();
 
 public:
-    ConfigurationWebServer() : server(80), prefs() {}
-    ConfigurationWebServer(int port) : server(port), prefs() {}
+    ConfigurationWebServer(ConfigStore& configStore) : server(80), store(configStore) {}
+    ConfigurationWebServer(ConfigStore& configStore, int port) : server(port), store(configStore) {}
 
     void Initialise();
+    void Handle();
     [[nodiscard]] const String GetStoredString(const char* key);
 };

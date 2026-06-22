@@ -13,26 +13,20 @@
 
 ## Prerequisites
 
-At the core of this project is the ESP32-C3 module with an integrated 240x240 IPS screen. No soldering required. The module does all the heavy lifting.
+At the core of this build is a **Raspberry Pi Pico W** paired with a **Pimoroni Pico Display Pack 2.0** — a 320x240 IPS screen that presses straight onto the Pico's headers. The Pico W handles WiFi and drives the screen over SPI.
 
-I used dark grey PLA filament for the print, but any colour will work just fine. For the lens (optional but recommended), you'll need clear-drying epoxy to secure it (not super glue, which will fog up the lens. Ask me how I know.)
+> Looking for the original ESP32-C3 round-screen build? See the git history before this port.
 
 ### Tools you'll need
 
-- Small screwdriver (for M2 screws)
-- Soldering iron (for setting the threaded inserts)
-
-Set up a clean, organised workspace before you start. You'll be handling small components and epoxy, so a dedicated area helps. Keep a damp cloth nearby for cleaning if needed, and ensure your soldering iron has adequate ventilation.
+- A Raspberry Pi Pico W with headers already soldered (or a soldering iron to fit your own)
+- A USB cable that supports data transfer
 
 ### Shopping List
 
-Everything you need is below. I've linked products I used and recommend for ease of build, though alternatives exist on Amazon and elsewhere. If you deviate from this hardware, you may need to modify the enclosure and/or code.
-
-- [ ] [1.28" Round GC9A01 240x240 IPS Display Module with ESP32-C3 (no-touch)](https://www.aliexpress.com/item/1005008482665220.html)
-- [ ] [USB-C Ribbon Extension Cable (5cm, CMUP-CFPCB-BK)](https://www.aliexpress.com/item/1005005371248824.html)
-- [ ] [M2 Heat-set Threaded Inserts (+ soldering iron)](https://www.aliexpress.com/item/1005008493831823.html)
-- [ ] [32.5mm Round Mineral Glass Lens (optional, recommended)](https://www.aliexpress.com/item/1005004783554496.html)
-- [ ] [Gorilla Epoxy (necessary for fitting lens, useful anyway)](https://www.amazon.co.uk/Gorilla-Glue-25ml-Epoxy/dp/B009NQQJFC)
+- [ ] [Raspberry Pi Pico W (with pre-soldered headers)](https://shop.pimoroni.com/products/raspberry-pi-pico-w)
+- [ ] [Pimoroni Pico Display Pack 2.0 (320x240 IPS)](https://shop.pimoroni.com/products/pico-display-pack-2-0)
+- [ ] A USB cable to suit your Pico
 
 ### Accounts / API
 
@@ -46,117 +40,24 @@ Further info on what to do with the account is in the usage section.
 
 ## Assembly
 
-Once you've got all the parts, assembly typically takes 1-2 hours (excluding print time).
+With the Pico W **unplugged**, line the Pico Display Pack 2.0 up with the Pico's pin headers (the screen sits over the USB end of the board) and press it down firmly until it's fully seated. That's the whole build — no soldering, screws, or glue required.
 
-**I strongly recommend reading the [Usage](#usage) section before you start assembly.** It'll help with troubleshooting if anything goes wrong. You might want to test the firmware and your hardware before closing everything up.
+Then plug the Pico W into USB and flash the firmware (see [Usage](#usage)).
 
-### Step 1: 3D Print
-
-<img width="400" alt="FFCBBECA-6165-4138-8C84-16AB375511A2_1_105_c" src="https://github.com/user-attachments/assets/21c0753c-7d7c-425c-bdf6-0df037a8fdaa" />
-
-Print all four STLs from `./hardware/stl/`:
-
-- Main enclosure
-- Front plate
-- Bezel
-- 2 spacers
-
-### Step 2: Heat-set Threaded Inserts
-
-**You'll need:** Soldering iron, M2 threaded inserts
-
-Start with the front plate: insert 2mm M2 threaded inserts into the larger holes using the soldering iron.
-
-<img width="400" alt="IMG_7882" src="https://github.com/user-attachments/assets/defcfb2c-cdff-4bf1-84b9-7fceeefb0caf" />
-
-Next, the two spacers. These might warp slightly, that's fine. Insert 6mm M2 inserts into each.
-
-<img width="400" alt="IMG_7887" src="https://github.com/user-attachments/assets/73b95049-5f12-4e2b-983a-5242c05f9106" />
-
-Finally, the main enclosure. Insert 5mm M2 inserts.
-
-<img width="400" alt="IMG_7891" src="https://github.com/user-attachments/assets/e36f3eec-31b5-468e-8451-9c428eaf9c21" />
-
-Et voilà.
-
-<img width="400" alt="IMG_7896" src="https://github.com/user-attachments/assets/97337223-223c-4531-90e1-f511adfb3d66" />
-
-### Step 3 (Optional): Fitting the Lens
-
-<img width="400" alt="IMG_7902" src="https://github.com/user-attachments/assets/e555f787-ca87-4558-b1eb-107f9071f96e" />
-
-**You'll need:** Clear-drying epoxy, small applicator (match or cocktail stick works)
-
-This is the fiddliest bit. Keep it neat and you'll avoid frustration:
-
-- Apply epoxy to the front plate, not the lens
-- Lower the front plate onto the lens (easier to manage excess epoxy)
-- Have a cleaner ready for the edges (I used nail polish remover, your mileage may vary)
-- Less is more with epoxy
-- Work on a surface that won't bond to epoxy
-
-<img width="400" alt="IMG_7911" src="https://github.com/user-attachments/assets/aa497389-efd5-45c3-84dc-c997232889ac" />
-
-Let the epoxy cure according to its label before moving on.
-
-### Step 4: Bezel
-
-**You'll need:** 2x5mm M2 screws, 2x10mm M2 screws
-
-Secure the bezel to the front plate using 2x5mm M2 screws through the threaded inserts you added earlier.
-
-<img width="400" alt="IMG_7914" src="https://github.com/user-attachments/assets/37a3502a-83e1-4552-a399-9a914e0ec973" />
-
-Screw 2x10mm M2 screws through the remaining two holes. They should protrude from the back.
-
-<img width="400" alt="IMG_7915" src="https://github.com/user-attachments/assets/9ccfe5f2-347d-4563-a2b1-eb5e65e1d83f" />
-
-Peel the protective film off the screen and position it over the lens. The screws you just inserted will guide the display into place.
-
-Before clamping it down with the spacers, **make sure the antenna is attached to the module**. Press it down firmly onto the flat surface until it clicks. Orientation doesn't matter, but you do need this connection otherwise you won't get any WiFi signal.
-
-<img width="400" alt="IMG_7917" src="https://github.com/user-attachments/assets/ee53aac0-d119-4941-a814-f7ef23ffe7a0" />
-
-<img width="400" alt="IMG_7920" src="https://github.com/user-attachments/assets/0d4d7d86-9787-4972-aa55-8ae43c9a078b" />
-
-Now screw the spacers into those protruding screws to clamp the module in place. I recommend keeping the board plugged in at this point to help with alignment. Don't use much force, too much pressure will stress the screen.
-
-Once you're happy with the alignment, you can add a small amount of epoxy around the module to lock it in place permanently (optional, but recommended if you're happy with the build).
-
-### Step 5: Final Assembly
-
-**You'll need:** USB-C ribbon extension cable, 4x7mm M2 screws, optional rubber feet
-
-Attach the USB-C ribbon cable to the case with the provided nuts and bolts.
-
-<img width="400" alt="IMG_7921" src="https://github.com/user-attachments/assets/f40a7943-c880-4718-9e69-c87a4f5d33aa" />
-
-<img width="400" alt="IMG_7923" src="https://github.com/user-attachments/assets/2daccb36-421f-4a3e-812a-51dae4444d4e" />
-
-If you like, remove the supports from the bottom and insert rubber feet.
-
-<img width="400" alt="IMG_7924" src="https://github.com/user-attachments/assets/fdeb69f2-ec0d-441e-95ca-abd7523f7c61" />
-
-Plug in the board, then attach the front plate using 4x7mm M2 screws.
-
-<img width="400" alt="IMG_7925" src="https://github.com/user-attachments/assets/40da22d9-447d-4ad0-a500-02f862050e5c" />
-
-Done!
-
-<img width="400" alt="IMG_7930" src="https://github.com/user-attachments/assets/989fb56f-dacc-4bf5-a9ab-cb1311e534e4" />
+> **Note:** the 3D-printable enclosure under [`./hardware`](./hardware) was designed for the original round ESP32-C3 build and does **not** fit the Pico Display 2.0. It's kept for reference only.
 
 ## Usage
 
 ### Flashing the Firmware
 
-You'll need [VS Code](https://code.visualstudio.com/) with the [PlatformIO IDE extension](https://marketplace.visualstudio.com/items?itemName=platformio.platformio-ide) installed. Once installed, restart VS Code, open the repository folder, and dependencies will pull in automatically.
+You'll need [VS Code](https://code.visualstudio.com/) with the [PlatformIO IDE extension](https://marketplace.visualstudio.com/items?itemName=platformio.platformio-ide) installed. Once installed, restart VS Code, open the repository folder, and dependencies will pull in automatically (the first build downloads the Pico toolchain, so give it a few minutes).
 
-Plug the board in via USB-C, then hit the upload button (→) in the bottom status bar. If the board doesn't reboot with the new firmware automatically, hold the BOOT button on the back and press RESET once, then release BOOT.
+For the very first upload, hold the **BOOTSEL** button on the Pico W while plugging it into USB — it'll mount as a `RPI-RP2` drive. Release BOOTSEL, then hit the upload button (→) in the bottom status bar. After the first flash, PlatformIO can usually reset and re-upload over USB without touching BOOTSEL.
 
-The board should auto-detect, but if you hit an upload failure, check that the correct board is selected in the status bar. If it still won't upload, try:
+If you hit an upload failure, try:
 
-- Disconnect and reconnect the USB cable
-- Check that your cable supports data transfer (some USB-C cables are charge-only)
+- Disconnect and reconnect the USB cable (holding BOOTSEL again)
+- Check that your cable supports data transfer (some are charge-only)
 - Try a different USB port on your computer
 
 Read more about PlatformIO [here](https://docs.platformio.org/en/latest/).

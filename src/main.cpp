@@ -1,9 +1,10 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <WiFiManager.h>
 
 #include "LGFX.h"
-#include "WiFiManagerHelpers.h"
+#include "RadarLayout.h"
+#include "ConfigStore.h"
+#include "WiFiPortal.h"
 #include "ConfigurationWebServer.h"
 #include "HttpRequestManager.h"
 #include "OpenSkyAuthTokenHandler.h"
@@ -12,14 +13,12 @@
 #include "models/Aircraft.h"
 #include "models/TrackedAircraft.h"
 
-constexpr int SCREEN_SIZE = 240;
-constexpr int SCREEN_SIZE_DIV_2 = (SCREEN_SIZE / 2);
-
 LGFX tft;
 LGFX_Sprite backbuffer(&tft);
 
-WiFiManager wm;
-ConfigurationWebServer configServer;
+ConfigStore config;
+ConfigurationWebServer configServer(config);
+WiFiPortal wifiPortal(config, tft);
 HttpRequestManager http;
 OpenSkyAuthTokenHandler authHandler(http);
 
@@ -28,27 +27,26 @@ AircraftManager aircraftManager(configServer, authHandler, http, tft);
 void setup()
 {
   Serial.begin(115200);
-  // delay(1000); // avoids immediate serial output being cut off - uncomment if needed
+  // give the USB serial monitor a moment to attach so early boot logs aren't lost
+  const unsigned long serialDeadline = millis() + 2500;
+  while (!Serial && millis() < serialDeadline)
+    delay(10);
+  Serial.println("\n[boot] Micro Radar starting...");
 
   // initialise LGFX + screen
   tft.init();
-  tft.invertDisplay(true);
-  pinMode(3, OUTPUT);
-  digitalWrite(3, HIGH);
+  tft.setRotation(1); // ST7789 is natively 240x320 portrait; rotate to 320x240 landscape
 
   backbuffer.setColorDepth(8);
-  backbuffer.createSprite(SCREEN_SIZE, SCREEN_SIZE);
+  backbuffer.createSprite(SCREEN_WIDTH, SCREEN_HEIGHT);
 
-  // establish WiFi connection
-  tft.fillScreen(lgfx::color888(0, 0, 0));
-  tft.setTextColor(lgfx::color888(0, 255, 0));
-  tft.drawCentreString("Connecting to WiFi...", SCREEN_SIZE / 2, SCREEN_SIZE / 2);
-
-  WiFiManagerHelpers::ConfigureWiFiManager(wm, tft);
-  wm.autoConnect(WiFiManagerHelpers::WiFiManagerName);
+  // load persisted config, then connect to WiFi (or run the setup portal)
+  config.Begin();
+  wifiPortal.AutoConnect();
 
   // begin background server for configuration
   configServer.Initialise();
+  Serial.println("[boot] Config page: http://microradar.local/ (or the device IP)");
 
   // initialise aircraft manager
   aircraftManager.Initialise();
@@ -56,6 +54,8 @@ void setup()
 
 void loop()
 {
+  wifiPortal.MaintainConnection();
+  configServer.Handle();
   aircraftManager.Update();
 
   // draw cycle
@@ -64,10 +64,10 @@ void loop()
   String renderScanlines = configServer.GetStoredString("scanline");
   if (renderScanlines.isEmpty() || renderScanlines == "true") {
     DrawScanLines(backbuffer,
-      SCREEN_SIZE_DIV_2 - 1,
-      SCREEN_SIZE_DIV_2 - 1,
-      SCREEN_SIZE_DIV_2 - 1 + (std::cos(millis() / 3000.0f) * SCREEN_SIZE_DIV_2),
-      SCREEN_SIZE_DIV_2 - 1 + (std::sin(millis() / 3000.0f) * SCREEN_SIZE_DIV_2),
+      RADAR_CENTRE_X,
+      RADAR_CENTRE_Y,
+      RADAR_CENTRE_X + (std::cos(millis() / 3000.0f) * RADAR_RADIUS),
+      RADAR_CENTRE_Y + (std::sin(millis() / 3000.0f) * RADAR_RADIUS),
       20, 128, 5
     );
   }
@@ -75,4 +75,3 @@ void loop()
   aircraftManager.Draw(backbuffer);
   backbuffer.pushSprite(0, 0);
 }
-

@@ -1,7 +1,5 @@
 #include "AircraftManager.h"
-
-constexpr int SCREEN_SIZE = 240;
-constexpr int SCREEN_SIZE_DIV_2 = (SCREEN_SIZE / 2);
+#include "RadarLayout.h"
 
 #include <ArduinoJson.h>
 
@@ -116,12 +114,11 @@ void AircraftManager::Draw(LGFX_Sprite& backbuffer)
 
 void AircraftManager::DrawRadarCircles(LGFX_Sprite& backbuffer) const
 {
-    constexpr int CENTRE = SCREEN_SIZE_DIV_2 - 1;
-    constexpr int OUTER = SCREEN_SIZE_DIV_2 - 1;
+    constexpr int OUTER = RADAR_RADIUS - 1;
 
-    backbuffer.drawCircle(CENTRE, CENTRE, OUTER, lgfx::color888(0, 200, 0));
-    backbuffer.drawCircle(CENTRE, CENTRE, (OUTER / 3) * 2, lgfx::color888(0, 64, 0));
-    backbuffer.drawCircle(CENTRE, CENTRE, OUTER / 3, lgfx::color888(0, 32, 0));
+    backbuffer.drawCircle(RADAR_CENTRE_X, RADAR_CENTRE_Y, OUTER, lgfx::color888(0, 200, 0));
+    backbuffer.drawCircle(RADAR_CENTRE_X, RADAR_CENTRE_Y, (OUTER / 3) * 2, lgfx::color888(0, 64, 0));
+    backbuffer.drawCircle(RADAR_CENTRE_X, RADAR_CENTRE_Y, OUTER / 3, lgfx::color888(0, 32, 0));
 }
 
 std::pair<int, int> AircraftManager::ProjectCoordinateToScreen(float predLat, float predLon) const
@@ -132,8 +129,9 @@ std::pair<int, int> AircraftManager::ProjectCoordinateToScreen(float predLat, fl
     const float normLon = (dLon + rad) / (2.0f * rad);
     const float normLat = (dLat + rad) / (2.0f * rad);
 
-    const int x = static_cast<int>(normLon * SCREEN_SIZE);
-    const int y = static_cast<int>(SCREEN_SIZE - (normLat * SCREEN_SIZE));
+    constexpr int DIAMETER = 2 * RADAR_RADIUS;
+    const int x = (RADAR_CENTRE_X - RADAR_RADIUS) + static_cast<int>(normLon * DIAMETER);
+    const int y = (RADAR_CENTRE_Y + RADAR_RADIUS) - static_cast<int>(normLat * DIAMETER);
 
     return { x, y };
 }

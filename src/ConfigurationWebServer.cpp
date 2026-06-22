@@ -1,8 +1,7 @@
 #include "ConfigurationWebServer.h"
-#include <ESPmDNS.h>
+#include <LEAmDNS.h>
 
-// HTML stored in flash
-// %PLACEHOLDER% tokens are substituted at serve time by the template processor
+// HTML stored in flash. %PLACEHOLDER% tokens are substituted at serve time.
 static const char CONFIG_HTML[] PROGMEM = R"(
 <html>
     <head>
@@ -121,97 +120,82 @@ static const char CONFIG_HTML[] PROGMEM = R"(
 )";
 
 void ConfigurationWebServer::Initialise() {
-    // start mDNS and check result
+    // start mDNS so the config page is reachable at microradar.local
     if (!MDNS.begin("microradar")) {
         Serial.println("[WARN] Failed to start mDNS. Continuing without mDNS...");
+    } else {
+        MDNS.addService("http", "tcp", 80);
     }
 
-    // Handle visit to config web server
-    server.on("/", HTTP_GET, [&](AsyncWebServerRequest* request) {
-        Serial.println("[GET] Handling request to config web server...");
-
-        // read all values up front so the processor lambda can capture by value
-        prefs.begin("config", true);
-        const String latitude = prefs.getString("latitude", "");
-        const String longitude = prefs.getString("longitude", "");
-        const String radius = prefs.getString("radius", "1.0");
-        const String openskyClientId = prefs.getString("opensky-id", "");
-        String openskySecret = prefs.getString("opensky-secret", "");
-        const String scanlineEnabled = prefs.getString("scanline", "true");
-        const String infoTextEnabled = prefs.getString("infotext", "true");
-        const String triangleEnabled = prefs.getString("triangle", "true");
-        prefs.end();
-
-        // mask secret before sending to client
-        std::fill(openskySecret.begin(), openskySecret.end(), '*');
-
-        // template processor called once per %PLACEHOLDER% token found in CONFIG_HTML.
-        AsyncWebServerResponse* response = request->beginResponse(
-            200, "text/html",
-            (const uint8_t*)CONFIG_HTML, sizeof(CONFIG_HTML) - 1,
-            [latitude, longitude, radius, openskyClientId, openskySecret, scanlineEnabled, infoTextEnabled, triangleEnabled]
-            (const String& var) -> String {
-                if (var == "LATITUDE")       return latitude;
-                if (var == "LONGITUDE")      return longitude;
-                if (var == "RADIUS")         return radius;
-                if (var == "OPENSKY_ID")     return openskyClientId;
-                if (var == "OPENSKY_SECRET") return openskySecret;
-                if (var == "SCANLINE")       return scanlineEnabled == "true" ? "checked" : "";
-                if (var == "INFOTEXT")       return infoTextEnabled == "true" ? "checked" : "";
-                if (var == "TRIANGLE")       return triangleEnabled == "true" ? "checked" : "";
-                return "";
-            }
-        );
-        request->send(response);
-        }
-    );
-
-    // Handle save submission to web server
-    server.on("/save", HTTP_POST, [&](AsyncWebServerRequest* request) {
-        Serial.println("[POST] Handling form submission to config web server...");
-
-        // safe parameter retrieval helper lambda
-        auto TrySaveParam = [request, this](const char* paramName) {
-            const auto* param = request->getParam(paramName, true);
-            if (param == nullptr)
-                return false;
-
-            prefs.putString(paramName, param->value());
-            return true;
-            };
-
-        prefs.begin("config", false);
-
-        TrySaveParam("latitude");
-        TrySaveParam("longitude");
-        TrySaveParam("radius");
-        TrySaveParam("opensky-id");
-
-        const auto* param = request->getParam("opensky-secret", true);
-        if (param != nullptr) {
-            const String& secret = param->value();
-            if (secret.indexOf('*') == -1) { // Special handling for secret: don't overwrite with masked value
-                prefs.putString("opensky-secret", secret);
-            }
-        }
-
-        prefs.putString("scanline", request->hasParam("scanline", true) ? "true" : "false");
-        prefs.putString("triangle", request->hasParam("triangle", true) ? "true" : "false");
-        prefs.putString("infotext", request->hasParam("infotext", true) ? "true" : "false");
-        prefs.end();
-
-        request->send(200, "text/html", "Saved - restarting device...");
-        ESP.restart();
-        }
-    );
+    server.on("/", HTTP_GET, [this]() { HandleRoot(); });
+    server.on("/save", HTTP_POST, [this]() { HandleSave(); });
 
     server.begin();
 }
 
+void ConfigurationWebServer::Handle() {
+    server.handleClient();
+    MDNS.update();
+}
+
+void ConfigurationWebServer::HandleRoot() {
+    Serial.println("[GET] Handling request to config web server...");
+
+    const String latitude = store.GetString("latitude", "");
+    const String longitude = store.GetString("longitude", "");
+    const String radius = store.GetString("radius", "1.0");
+    const String openskyClientId = store.GetString("opensky-id", "");
+    String openskySecret = store.GetString("opensky-secret", "");
+    const String scanlineEnabled = store.GetString("scanline", "true");
+    const String infoTextEnabled = store.GetString("infotext", "true");
+    const String triangleEnabled = store.GetString("triangle", "true");
+
+    // mask secret before sending to client
+    for (size_t i = 0; i < openskySecret.length(); i++)
+        openskySecret[i] = '*';
+
+    String html = FPSTR(CONFIG_HTML);
+    html.replace("%LATITUDE%", latitude);
+    html.replace("%LONGITUDE%", longitude);
+    html.replace("%RADIUS%", radius);
+    html.replace("%OPENSKY_ID%", openskyClientId);
+    html.replace("%OPENSKY_SECRET%", openskySecret);
+    html.replace("%SCANLINE%", scanlineEnabled == "true" ? "checked" : "");
+    html.replace("%INFOTEXT%", infoTextEnabled == "true" ? "checked" : "");
+    html.replace("%TRIANGLE%", triangleEnabled == "true" ? "checked" : "");
+
+    server.send(200, "text/html", html);
+}
+
+void ConfigurationWebServer::HandleSave() {
+    Serial.println("[POST] Handling form submission to config web server...");
+
+    auto TrySaveParam = [this](const char* paramName) {
+        if (server.hasArg(paramName))
+            store.PutString(paramName, server.arg(paramName));
+    };
+
+    TrySaveParam("latitude");
+    TrySaveParam("longitude");
+    TrySaveParam("radius");
+    TrySaveParam("opensky-id");
+
+    if (server.hasArg("opensky-secret")) {
+        const String secret = server.arg("opensky-secret");
+        if (secret.indexOf('*') == -1) // don't overwrite with masked value
+            store.PutString("opensky-secret", secret);
+    }
+
+    store.PutString("scanline", server.hasArg("scanline") ? "true" : "false");
+    store.PutString("triangle", server.hasArg("triangle") ? "true" : "false");
+    store.PutString("infotext", server.hasArg("infotext") ? "true" : "false");
+
+    server.send(200, "text/html", "Saved - restarting device...");
+    delay(500);
+    rp2040.reboot();
+}
+
 const String ConfigurationWebServer::GetStoredString(const char* key)
 {
-    prefs.begin("config", true);
-    const String value = prefs.getString(key, "");
-    prefs.end();
-    return value;
+    return store.GetString(key, "");
 }
