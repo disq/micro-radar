@@ -92,68 +92,87 @@ bool WiFiPortal::TryConnect(const String& ssid, const String& pass, uint32_t tim
 
     const uint32_t deadline = millis() + timeoutMs;
 
-    // Scan from a clean STA state (NOT right after disconnect, which returns an
-    // empty list) and lock onto the strongest 2.4GHz BSSID for this SSID. On a
-    // mesh / band-steering network, letting the chip pick among same-SSID APs
-    // often lands on one that steers us toward a 5GHz radio the Pico W can't use,
-    // so association sticks at status 6. The scan only ever sees 2.4GHz here.
-    uint8_t bestBssid[6];
-    int32_t bestRssi = -1000;
-    bool haveBssid = false;
-    while (millis() < deadline && !haveBssid) {
+    // Collect every BSSID broadcasting our SSID (strongest first) and try each in
+    // turn. Locking onto a specific 2.4GHz radio stops the chip being steered to a
+    // 5GHz AP it can't use; trying them in order means if the closest one rejects
+    // us (WPA3 / band-steering) we fall through to a weaker sibling that accepts.
+    // The scan runs from a clean STA state - NOT after disconnect, which returns an
+    // empty list - and only ever sees 2.4GHz here.
+    struct Ap { uint8_t bssid[6]; int32_t rssi; };
+    constexpr int MAX_APS = 8;
+    Ap aps[MAX_APS];
+    int apCount = 0;
+
+    while (millis() < deadline && apCount == 0) {
         const int n = WiFi.scanNetworks();
         Serial.printf("[WiFi] scan returned %d network(s)\n", n);
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < n && apCount < MAX_APS; i++) {
             const char* found = WiFi.SSID(i);
             if (!found) found = "";
             const int32_t rssi = WiFi.RSSI(i);
             Serial.printf("   [%d] '%s' %d dBm\n", i, found, (int)rssi);
-            if (ssid == found && rssi > bestRssi) {
-                bestRssi = rssi;
-                WiFi.BSSID(i, bestBssid);
-                haveBssid = true;
+            if (ssid == found) {
+                WiFi.BSSID(i, aps[apCount].bssid);
+                aps[apCount].rssi = rssi;
+                apCount++;
             }
         }
-        if (!haveBssid) {
+        if (apCount == 0) {
             Serial.println("[WiFi] target SSID not in scan, rescanning...");
             if (BOOTSEL) RunConfigPortal();
             delay(500);
         }
     }
 
+    // sort strongest-first (selection sort; apCount is tiny)
+    for (int i = 0; i < apCount; i++) {
+        int best = i;
+        for (int j = i + 1; j < apCount; j++)
+            if (aps[j].rssi > aps[best].rssi) best = j;
+        if (best != i) { Ap tmp = aps[i]; aps[i] = aps[best]; aps[best] = tmp; }
+    }
+    Serial.printf("[WiFi] %d AP(s) found for '%s'\n", apCount, ssid.c_str());
+
     WiFi.setHostname("microradar");
     WiFi.noLowPowerMode(); // disable CYW43 power-save - big reliability win on Pico W
 
     int attempt = 0;
     while (millis() < deadline) {
-        if (haveBssid) {
-            Serial.printf("[WiFi] begin() attempt %d -> BSSID %02x:%02x:%02x:%02x:%02x:%02x (%d dBm)\n",
-                ++attempt, bestBssid[0], bestBssid[1], bestBssid[2], bestBssid[3], bestBssid[4],
-                bestBssid[5], (int)bestRssi);
-            WiFi.begin(ssid.c_str(), pass.c_str(), bestBssid);
-        } else {
-            Serial.printf("[WiFi] begin() attempt %d (no BSSID lock)\n", ++attempt);
-            WiFi.begin(ssid.c_str(), pass.c_str());
-        }
-
-        uint32_t attemptDeadline = millis() + 8000;
-        if (attemptDeadline > deadline) attemptDeadline = deadline;
-        uint32_t lastPrint = 0;
-        while (WiFi.status() != WL_CONNECTED && millis() < attemptDeadline) {
-            if (BOOTSEL)
-                RunConfigPortal(); // user asked for the setup portal; never returns
-            if (millis() - lastPrint >= 1000) {
-                Serial.printf("[WiFi] ...status=%d\n", WiFi.status());
-                lastPrint = millis();
+        const int passes = apCount > 0 ? apCount : 1; // one plain begin() if scan found nothing
+        for (int a = 0; a < passes && millis() < deadline; a++) {
+            if (apCount > 0) {
+                const uint8_t* b = aps[a].bssid;
+                Serial.printf("[WiFi] attempt %d -> BSSID %02x:%02x:%02x:%02x:%02x:%02x (%d dBm)\n",
+                    ++attempt, b[0], b[1], b[2], b[3], b[4], b[5], (int)aps[a].rssi);
+                WiFi.begin(ssid.c_str(), pass.c_str(), b);
+            } else {
+                Serial.printf("[WiFi] attempt %d (no BSSID lock)\n", ++attempt);
+                WiFi.begin(ssid.c_str(), pass.c_str());
             }
-            delay(100);
+
+            uint32_t attemptDeadline = millis() + 6000;
+            if (attemptDeadline > deadline) attemptDeadline = deadline;
+            uint32_t lastPrint = 0;
+            while (WiFi.status() != WL_CONNECTED && millis() < attemptDeadline) {
+                if (BOOTSEL)
+                    RunConfigPortal(); // user asked for the setup portal; never returns
+                if (WiFi.status() == WL_CONNECT_FAILED) {
+                    Serial.println("[WiFi] ...rejected (status=4), trying next BSSID");
+                    break; // terminal - don't wait out the timeout, move on
+                }
+                if (millis() - lastPrint >= 1000) {
+                    Serial.printf("[WiFi] ...status=%d\n", WiFi.status());
+                    lastPrint = millis();
+                }
+                delay(100);
+            }
+
+            if (WiFi.status() == WL_CONNECTED)
+                return true;
+
+            WiFi.disconnect();
+            delay(150);
         }
-
-        if (WiFi.status() == WL_CONNECTED)
-            return true;
-
-        WiFi.disconnect();
-        delay(200);
     }
 
     return false;
