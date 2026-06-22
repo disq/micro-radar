@@ -17,6 +17,7 @@ private:
 
     bool displayInfoText = true;
     bool displayTriangles = true;
+    bool displayScanline = true;
 
     unsigned long fetchInterval = 0;
     unsigned long lastFetch = 999999;

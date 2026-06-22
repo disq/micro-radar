@@ -1,5 +1,6 @@
 #include "WiFiPortal.h"
 #include "RadarLayout.h"
+#include "Sync.h"
 
 #include <WiFi.h>
 #include <WebServer.h>
@@ -79,7 +80,9 @@ void WiFiPortal::MaintainConnection()
     // the band-steering problem would defeat. Blocks until reconnected - which
     // is fine, there's no live data to show while the link is down anyway.
     Serial.println("[WiFi] Link dropped - reconnecting...");
+    g_radarActive = false; // hand the display back to core0 for the status screen
     AutoConnect();
+    g_radarActive = true;
 }
 
 bool WiFiPortal::TryConnect(const String& ssid, const String& pass)
@@ -229,6 +232,10 @@ void WiFiPortal::RunConfigPortal()
 
 void WiFiPortal::ShowStatus(const char* line1, const String& line2, const String& line3)
 {
+    // Status text comes from core0; the radar push comes from core1. Share the TFT
+    // through the display mutex so the two never drive the SPI bus at once.
+    mutex_enter_blocking(&g_displayMutex);
+
     tft.fillScreen(lgfx::color888(0, 0, 0));
     tft.setTextColor(lgfx::color888(0, 255, 0));
 
@@ -239,4 +246,6 @@ void WiFiPortal::ShowStatus(const char* line1, const String& line2, const String
     tft.drawCenterString(line1, cx, cy - lineHeight);
     if (!line2.isEmpty()) tft.drawCenterString(line2, cx, cy);
     if (!line3.isEmpty()) tft.drawCenterString(line3, cx, cy + lineHeight);
+
+    mutex_exit(&g_displayMutex);
 }

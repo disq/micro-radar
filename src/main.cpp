@@ -3,13 +3,13 @@
 
 #include "LGFX.h"
 #include "RadarLayout.h"
+#include "Sync.h"
 #include "ConfigStore.h"
 #include "WiFiPortal.h"
 #include "ConfigurationWebServer.h"
 #include "HttpRequestManager.h"
 #include "OpenSkyAuthTokenHandler.h"
 #include "AircraftManager.h"
-#include "DrawHelpers.h"
 #include "models/Aircraft.h"
 #include "models/TrackedAircraft.h"
 
@@ -24,6 +24,13 @@ OpenSkyAuthTokenHandler authHandler(http);
 
 AircraftManager aircraftManager(configServer, authHandler, http, tft);
 
+// Cross-core sync (declared extern in Sync.h). core0 runs WiFi + the blocking
+// OpenSky fetch; core1 (loop1) draws the radar so the animation never stalls.
+mutex_t g_dataMutex;
+mutex_t g_displayMutex;
+volatile bool g_radarActive = false;
+bool core1_separate_stack = true; // give each core its own 8K stack (core0 needs it for TLS)
+
 void setup()
 {
   Serial.begin(115200);
@@ -32,6 +39,9 @@ void setup()
   while (!Serial && millis() < serialDeadline)
     delay(10);
   Serial.println("\n[boot] Micro Radar starting...");
+
+  mutex_init(&g_dataMutex);
+  mutex_init(&g_displayMutex);
 
   // initialise LGFX + screen
   tft.init();
@@ -50,6 +60,9 @@ void setup()
 
   // initialise aircraft manager
   aircraftManager.Initialise();
+
+  // boot + first connect done - let core1 start drawing the radar
+  g_radarActive = true;
 }
 
 void loop()
@@ -59,21 +72,21 @@ void loop()
   if (configServer.ConsumeSettingsChanged())
     aircraftManager.ReloadSettings();
   aircraftManager.Update();
+}
 
-  // draw cycle
-  backbuffer.fillScreen(lgfx::color888(0, 0, 0));
-
-  String renderScanlines = configServer.GetStoredString("scanline");
-  if (renderScanlines.isEmpty() || renderScanlines == "true") {
-    DrawScanLines(backbuffer,
-      RADAR_CENTRE_X,
-      RADAR_CENTRE_Y,
-      RADAR_CENTRE_X + (std::cos(millis() / 3000.0f) * RADAR_RADIUS),
-      RADAR_CENTRE_Y + (std::sin(millis() / 3000.0f) * RADAR_RADIUS),
-      20, 128, 5
-    );
+// core1: draw the radar. Runs independently of the core0 fetch, so the sweep and
+// aircraft keep animating smoothly even while an OpenSky TLS request is blocking.
+void loop1()
+{
+  if (!g_radarActive) {
+    delay(5); // core0 is showing a status screen (booting / reconnecting)
+    return;
   }
 
+  backbuffer.fillScreen(lgfx::color888(0, 0, 0));
   aircraftManager.Draw(backbuffer);
+
+  mutex_enter_blocking(&g_displayMutex);
   backbuffer.pushSprite(0, 0);
+  mutex_exit(&g_displayMutex);
 }

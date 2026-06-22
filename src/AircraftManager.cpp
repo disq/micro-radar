@@ -1,5 +1,7 @@
 #include "AircraftManager.h"
 #include "RadarLayout.h"
+#include "DrawHelpers.h"
+#include "Sync.h"
 
 #include <ArduinoJson.h>
 
@@ -23,18 +25,26 @@ void AircraftManager::Initialise()
 
 void AircraftManager::ReloadSettings()
 {
+    // core1 reads lat/lon/rad + the display flags while drawing, so update them
+    // under the same lock to avoid a torn read mid-frame.
+    mutex_enter_blocking(&g_dataMutex);
+
     lat = configServer.GetStoredString("latitude").toDouble();
     lon = configServer.GetStoredString("longitude").toDouble();
     rad = configServer.GetStoredString("radius").toDouble();
 
     const String renderText = configServer.GetStoredString("infotext");
     const String renderTris = configServer.GetStoredString("triangle");
+    const String renderScan = configServer.GetStoredString("scanline");
     if (!renderText.isEmpty()) displayInfoText = renderText == "true";
     if (!renderTris.isEmpty()) displayTriangles = renderTris == "true";
+    displayScanline = renderScan.isEmpty() || renderScan == "true";
 
     // the tracked planes belong to the old area; drop them and refetch promptly
     trackedAircraft.clear();
     forceFetch = true;
+
+    mutex_exit(&g_dataMutex);
 }
 
 void AircraftManager::Update()
@@ -74,12 +84,14 @@ void AircraftManager::Update()
             return;
         }
 
-        // track
+        // parse off-lock (the slow part), then merge into the shared map briefly
+        // under the lock so core1's draw never sees a half-updated map.
         JsonDocument doc;
         deserializeJson(doc, result.response);
         auto aircraft = JsonParser::ParseArray<Aircraft>(doc["states"]);
         now = millis(); // override with post-parse timestamp
 
+        mutex_enter_blocking(&g_dataMutex);
         for (auto& ac : aircraft) {
             auto it = trackedAircraft.find(ac.icao24);
             if (it == trackedAircraft.end())
@@ -96,13 +108,26 @@ void AircraftManager::Update()
             else
                 ++it;
         }
+        mutex_exit(&g_dataMutex);
     }
 }
 
 void AircraftManager::Draw(LGFX_Sprite& backbuffer)
 {
+    // sweep + circles touch only the backbuffer (owned by this core), so they
+    // need no lock; only the tracked-aircraft iteration shares state with core0.
+    if (displayScanline) {
+        const float t = millis() / 3000.0f;
+        DrawScanLines(backbuffer,
+            RADAR_CENTRE_X, RADAR_CENTRE_Y,
+            RADAR_CENTRE_X + (std::cos(t) * RADAR_RADIUS),
+            RADAR_CENTRE_Y + (std::sin(t) * RADAR_RADIUS),
+            20, 128, 5);
+    }
+
     DrawRadarCircles(backbuffer);
 
+    mutex_enter_blocking(&g_dataMutex);
     for (auto& [icao, tracked] : trackedAircraft) {
         if (tracked.state.onGround) continue;
 
@@ -118,6 +143,7 @@ void AircraftManager::Draw(LGFX_Sprite& backbuffer)
         else
             backbuffer.fillCircle(x, y, 3, lgfx::color888(0, 255, 0));
     }
+    mutex_exit(&g_dataMutex);
 }
 
 void AircraftManager::DrawRadarCircles(LGFX_Sprite& backbuffer) const
