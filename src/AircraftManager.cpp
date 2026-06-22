@@ -117,11 +117,16 @@ void AircraftManager::Draw(LGFX_Sprite& backbuffer)
     // sweep + circles touch only the backbuffer (owned by this core), so they
     // need no lock; only the tracked-aircraft iteration shares state with core0.
     if (displayScanline) {
-        const float t = millis() / 3000.0f;
+        const float ang = millis() / 3000.0f;
+        // Reach past the rectangle's half-diagonal so the sweep line AND its trailing
+        // fan over-shoot the boundary in every direction and just clip at the screen
+        // edge - that fills the rectangular screen, corners included.
+        const float reach = std::sqrt((float)(RADAR_CENTRE_X * RADAR_CENTRE_X +
+                                              RADAR_CENTRE_Y * RADAR_CENTRE_Y)) * 1.15f;
         DrawScanLines(backbuffer,
             RADAR_CENTRE_X, RADAR_CENTRE_Y,
-            RADAR_CENTRE_X + (std::cos(t) * RADAR_RADIUS),
-            RADAR_CENTRE_Y + (std::sin(t) * RADAR_RADIUS),
+            RADAR_CENTRE_X + std::cos(ang) * reach,
+            RADAR_CENTRE_Y + std::sin(ang) * reach,
             20, 128, 5);
     }
 
