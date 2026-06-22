@@ -85,7 +85,7 @@ void WiFiPortal::MaintainConnection()
 bool WiFiPortal::TryConnect(const String& ssid, const String& pass)
 {
     // status legend: 0=IDLE 1=NO_SSID 3=CONNECTED 4=CONNECT_FAILED 6=DISCONNECTED
-    Serial.printf("[WiFi] Connecting to '%s' with '%s' (Pico W is 2.4GHz only)...\n", ssid.c_str(), pass.c_str());
+    Serial.printf("[WiFi] Connecting to '%s' (Pico W is 2.4GHz only)...\n", ssid.c_str());
 
     WiFi.mode(WIFI_STA);
     delay(200);
@@ -106,11 +106,9 @@ bool WiFiPortal::TryConnect(const String& ssid, const String& pass)
         for (int i = 0; i < n && apCount < MAX_APS; i++) {
             const char* found = WiFi.SSID(i);
             if (!found) found = "";
-            const int32_t rssi = WiFi.RSSI(i);
-            Serial.printf("   [%d] '%s' %d dBm\n", i, found, (int)rssi);
             if (ssid == found) {
                 WiFi.BSSID(i, aps[apCount].bssid);
-                aps[apCount].rssi = rssi;
+                aps[apCount].rssi = WiFi.RSSI(i);
                 apCount++;
             }
         }
